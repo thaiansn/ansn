@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>飞机空战小游戏</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Microsoft YaHei", system-ui, sans-serif;
+      background: radial-gradient(circle at top, #193257, #05070f 65%);
+      display: grid;
+      place-items: center;
+      min-height: 100vh;
+      color: #dce6ff;
+    }
+    .game-wrap { text-align: center; }
+    h1 { margin: 0 0 10px; font-size: 1.3rem; }
+    p { margin: 8px 0 12px; color: #afc7ff; font-size: 0.95rem; }
+    canvas {
+      border: 2px solid #5f7cff;
+      border-radius: 12px;
+      box-shadow: 0 14px 40px rgba(0,0,0,.45);
+      background: linear-gradient(#071223, #03070f);
+    }
+  </style>
+</head>
+<body>
+  <main class="game-wrap">
+    <h1>✈️ 飞机空战</h1>
+    <p>方向键移动，空格射击。被敌机撞到就结束，按 R 重新开始。</p>
+    <canvas id="game" width="480" height="720" aria-label="飞机空战游戏画布"></canvas>
+  </main>
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+
+    const state = {
+      running: true,
+      score: 0,
+      best: 0,
+      stars: Array.from({ length: 90 }, () => ({ x: Math.random() * 480, y: Math.random() * 720, s: 1 + Math.random() * 2 })),
+      keys: new Set(),
+      player: { x: 240, y: 620, w: 36, h: 48, speed: 5, cooldown: 0 },
+      bullets: [],
+      enemies: [],
+      enemyTimer: 0,
+      time: 0,
+    };
+
+    const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+
+    function reset() {
+      state.running = true;
+      state.score = 0;
+      state.player.x = 240;
+      state.player.y = 620;
+      state.player.cooldown = 0;
+      state.bullets = [];
+      state.enemies = [];
+      state.enemyTimer = 0;
+      state.time = 0;
+    }
+
+    function spawnEnemy() {
+      const w = 28 + Math.random() * 26;
+      state.enemies.push({
+        x: Math.random() * (canvas.width - w),
+        y: -60,
+        w,
+        h: 30 + Math.random() * 22,
+        speed: 1.8 + Math.random() * 2 + Math.min(2, state.score / 120)
+      });
+    }
+
+    function movePlayer() {
+      const p = state.player;
+      if (state.keys.has('ArrowLeft')) p.x -= p.speed;
+      if (state.keys.has('ArrowRight')) p.x += p.speed;
+      if (state.keys.has('ArrowUp')) p.y -= p.speed;
+      if (state.keys.has('ArrowDown')) p.y += p.speed;
+      p.x = clamp(p.x, p.w / 2, canvas.width - p.w / 2);
+      p.y = clamp(p.y, p.h / 2, canvas.height - p.h / 2);
+
+      if (p.cooldown > 0) p.cooldown--;
+      if (state.keys.has(' ') && p.cooldown === 0) {
+        state.bullets.push({ x: p.x, y: p.y - p.h / 2 - 8, r: 3, speed: 8 });
+        p.cooldown = 9;
+      }
+    }
+
+    function rectHit(a, b) {
+      return a.x - a.w / 2 < b.x + b.w / 2 &&
+             a.x + a.w / 2 > b.x - b.w / 2 &&
+             a.y - a.h / 2 < b.y + b.h / 2 &&
+             a.y + a.h / 2 > b.y - b.h / 2;
+    }
+
+    function update() {
+      if (!state.running) return;
+      state.time++;
+      movePlayer();
+
+      state.enemyTimer--;
+      if (state.enemyTimer <= 0) {
+        spawnEnemy();
+        state.enemyTimer = Math.max(16, 52 - Math.floor(state.score / 18));
+      }
+
+      state.bullets.forEach(b => b.y -= b.speed);
+      state.bullets = state.bullets.filter(b => b.y > -30);
+
+      state.enemies.forEach(e => e.y += e.speed);
+      state.enemies = state.enemies.filter(e => e.y < canvas.height + 80);
+
+      for (let i = state.enemies.length - 1; i >= 0; i--) {
+        const e = state.enemies[i];
+
+        if (rectHit({ ...state.player }, { x: e.x + e.w / 2, y: e.y + e.h / 2, w: e.w, h: e.h })) {
+          state.running = false;
+          state.best = Math.max(state.best, state.score);
+          return;
+        }
+
+        for (let j = state.bullets.length - 1; j >= 0; j--) {
+          const b = state.bullets[j];
+          if (b.x > e.x && b.x < e.x + e.w && b.y > e.y && b.y < e.y + e.h) {
+            state.enemies.splice(i, 1);
+            state.bullets.splice(j, 1);
+            state.score += 10;
+            break;
+          }
+        }
+      }
+
+      state.stars.forEach(st => {
+        st.y += st.s;
+        if (st.y > canvas.height) {
+          st.y = -2;
+          st.x = Math.random() * canvas.width;
+        }
+      });
+    }
+
+    function drawPlayer() {
+      const p = state.player;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.fillStyle = '#7ee7ff';
+      ctx.beginPath();
+      ctx.moveTo(0, -p.h / 2);
+      ctx.lineTo(p.w / 2, p.h / 2);
+      ctx.lineTo(0, p.h / 4);
+      ctx.lineTo(-p.w / 2, p.h / 2);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = '#b6fbff';
+      ctx.fillRect(-4, -10, 8, 18);
+      ctx.restore();
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      for (const st of state.stars) {
+        ctx.fillStyle = `rgba(180,210,255,${0.25 + st.s / 5})`;
+        ctx.fillRect(st.x, st.y, st.s, st.s);
+      }
+
+      drawPlayer();
+
+      ctx.fillStyle = '#ffde59';
+      for (const b of state.bullets) {
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      for (const e of state.enemies) {
+        ctx.fillStyle = '#ff5f79';
+        ctx.fillRect(e.x, e.y, e.w, e.h);
+        ctx.fillStyle = '#ffd2da';
+        ctx.fillRect(e.x + e.w * 0.15, e.y + e.h * 0.2, e.w * 0.7, e.h * 0.2);
+      }
+
+      ctx.fillStyle = '#dce6ff';
+      ctx.font = 'bold 22px sans-serif';
+      ctx.fillText(`得分: ${state.score}`, 16, 30);
+      ctx.font = '16px sans-serif';
+      ctx.fillText(`最高: ${state.best}`, 16, 54);
+
+      if (!state.running) {
+        ctx.fillStyle = 'rgba(0,0,0,.55)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 38px sans-serif';
+        ctx.fillText('游戏结束', canvas.width / 2, canvas.height / 2 - 20);
+        ctx.font = '20px sans-serif';
+        ctx.fillText(`本局得分 ${state.score}`, canvas.width / 2, canvas.height / 2 + 18);
+        ctx.font = '18px sans-serif';
+        ctx.fillText('按 R 重新开始', canvas.width / 2, canvas.height / 2 + 52);
+        ctx.textAlign = 'left';
+      }
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener('keydown', (e) => {
+      if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',' '].includes(e.key)) e.preventDefault();
+      state.keys.add(e.key);
+      if (!state.running && (e.key === 'r' || e.key === 'R')) reset();
+    });
+
+    window.addEventListener('keyup', (e) => state.keys.delete(e.key));
+
+    loop();
+  </script>
+</body>
+</html>
